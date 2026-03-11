@@ -14,16 +14,12 @@ jobs:
       matrix:
         include:
           - pg_version: "17.9"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
           - pg_version: "16.13"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
           - pg_version: "15.17"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
           - pg_version: "14.22"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
 
     steps:
@@ -33,7 +29,6 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build Docker image
-        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -41,7 +36,6 @@ jobs:
           tags: postgres-test:pg${{ matrix.pg_version }}
           build-args: |
             PG_VERSION=${{ matrix.pg_version }}
-            POSTGIS_VERSION=${{ matrix.postgis_version }}
             PGVECTOR_VERSION=${{ matrix.pgvector_version }}
 
       - name: Start PostgreSQL container and test extensions

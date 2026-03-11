@@ -19,19 +19,15 @@ jobs:
       matrix:
         include:
           - pg_version: "17.9"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
             latest: true
           - pg_version: "16.13"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
             latest: false
           - pg_version: "15.17"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
             latest: false
           - pg_version: "14.22"
-            postgis_version: "3"
             pgvector_version: "0.8.2"
             latest: false
 
@@ -49,26 +45,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}
-          tags: |
-            type=raw,value=postgres-${{ matrix.pg_version }}-postgis-${{ matrix.postgis_version }}-pgvector-${{ matrix.pgvector_version }}
-            type=raw,value=latest,enable=${{ matrix.latest }}
-            type=ref,event=tag
-
-      - name: Build and push Docker image
+      - name: Build Docker image
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          load: true
+          tags: local-build:${{ matrix.pg_version }}
           build-args: |
             PG_VERSION=${{ matrix.pg_version }}
-            POSTGIS_VERSION=${{ matrix.postgis_version }}
             PGVECTOR_VERSION=${{ matrix.pgvector_version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+
+      - name: Detect PostGIS version
+        id: postgis
+        run: |
+          PG_MAJOR=$(echo "${{ matrix.pg_version }}" | cut -d. -f1)
+          POSTGIS_VERSION=$(docker run --rm local-build:${{ matrix.pg_version }} \
+            dpkg-query -W -f='${Version}' "postgresql-${PG_MAJOR}-postgis-3" | cut -d+ -f1)
+          echo "version=${POSTGIS_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected PostGIS version: ${POSTGIS_VERSION}"
+
+      - name: Tag and push Docker image
+        run: |
+          IMAGE="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          TAG="postgres-${{ matrix.pg_version }}-postgis-${{ steps.postgis.outputs.version }}-pgvector-${{ matrix.pgvector_version }}"
+          docker tag local-build:${{ matrix.pg_version }} "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:${TAG}"
+          echo "Pushed ${IMAGE}:${TAG}"
+          if [ "${{ matrix.latest }}" = "true" ]; then
+            docker tag local-build:${{ matrix.pg_version }} "${IMAGE}:latest"
+            docker push "${IMAGE}:latest"
+            echo "Pushed ${IMAGE}:latest"
+          fi
