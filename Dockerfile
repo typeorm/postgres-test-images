@@ -1,10 +1,12 @@
 # Default versions - can be overridden at build time using --build-arg
 ARG PG_VERSION=17.9
+ARG POSTGIS_VERSION=3.6.2
 ARG PGVECTOR_VERSION=0.8.2
 
 FROM postgres:${PG_VERSION}
 
 # Re-declare ARGs after FROM to make them available in this build stage
+ARG POSTGIS_VERSION
 ARG PGVECTOR_VERSION
 
 LABEL maintainer="TypeORM"
@@ -29,14 +31,15 @@ RUN apt-get update \
     gcc \
     "postgresql-server-dev-${PG_MAJOR}"
 
-# Install PostGIS
-RUN apt-get update \
+# Install pinned PostGIS version (apt packages use major version in name)
+RUN POSTGIS_MAJOR=$(echo "${POSTGIS_VERSION}" | cut -d. -f1) \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
-    postgis \
-    "postgresql-${PG_MAJOR}-postgis-3" \
-    "postgresql-${PG_MAJOR}-postgis-3-scripts"
+    "postgis=${POSTGIS_VERSION}+dfsg*" \
+    "postgresql-${PG_MAJOR}-postgis-${POSTGIS_MAJOR}=${POSTGIS_VERSION}+dfsg*" \
+    "postgresql-${PG_MAJOR}-postgis-${POSTGIS_MAJOR}-scripts=${POSTGIS_VERSION}+dfsg*"
 
-# Build and install pgvector from source to pin exact version
+# Build and install pinned pgvector version from source
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git make gcc "postgresql-server-dev-${PG_MAJOR}" \
     && mkdir -p /usr/src/pgvector \
