@@ -1,59 +1,48 @@
 # Default versions - can be overridden at build time using --build-arg
-ARG PG_MAJOR_VERSION=16
-ARG POSTGIS_MAJOR_VERSION=3
-ARG PGVECTOR_TAG=v0.8.0
+ARG PG_VERSION=17.9
+ARG POSTGIS_VERSION=3
+ARG PGVECTOR_VERSION=0.8.2
 
-FROM postgres:${PG_MAJOR_VERSION}
+FROM postgres:${PG_VERSION}
 
 # Re-declare ARGs after FROM to make them available in this build stage
-ARG PG_MAJOR_VERSION
-ARG POSTGIS_MAJOR_VERSION
-ARG PGVECTOR_TAG
+ARG POSTGIS_VERSION
+ARG PGVECTOR_VERSION
 
-LABEL maintainer="Naor Peled me@naor.dev"
+LABEL maintainer="TypeORM"
 LABEL description="PostgreSQL with PostGIS and pgvector extensions for TypeORM"
-LABEL org.opencontainers.image.source="https://github.com/naorpeled/typeorm-postgres-docker"
-
-# Set ENV vars from ARGs for runtime inspection and use within the container
-ENV PG_MAJOR_VERSION=${PG_MAJOR_VERSION} \
-    POSTGIS_MAJOR_VERSION=${POSTGIS_MAJOR_VERSION} \
-    PGVECTOR_TAG=${PGVECTOR_TAG}
+LABEL org.opencontainers.image.source="https://github.com/typeorm/postgres-test-images"
 
 # Install base dependencies, setup PGDG repository, and install build tools
+# Note: PG_MAJOR is provided by the official postgres base image
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     lsb-release \
     gnupg \
     ca-certificates \
     wget \
-    # Add PostgreSQL official repository using signed-by (apt-key is removed in newer Debian)
     && wget --quiet -O /usr/share/keyrings/postgresql-archive-keyring.gpg https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     && sh -c 'echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list' \
-    # Update package lists again after adding the new repository
     && apt-get update \
-    # Install build tools and PostgreSQL development packages from PGDG
     && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     make \
     gcc \
-    "postgresql-server-dev-${PG_MAJOR_VERSION}"
+    "postgresql-server-dev-${PG_MAJOR}"
 
 # Install PostGIS
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
     postgis \
-    "postgresql-${PG_MAJOR_VERSION}-postgis-${POSTGIS_MAJOR_VERSION}" \
-    "postgresql-${PG_MAJOR_VERSION}-postgis-${POSTGIS_MAJOR_VERSION}-scripts"
+    "postgresql-${PG_MAJOR}-postgis-${POSTGIS_VERSION}" \
+    "postgresql-${PG_MAJOR}-postgis-${POSTGIS_VERSION}-scripts"
 
 # Build and install pgvector
 RUN apt-get update \
-    # Ensure build tools are available for this layer if they were aggressively purged before,
-    # or if previous RUN commands didn't include them and they are needed.
-    # For pgvector, we need git, make, gcc, and postgresql-server-dev.
-    && apt-get install -y --no-install-recommends git make gcc "postgresql-server-dev-${PG_MAJOR_VERSION}" \
+    && apt-get install -y --no-install-recommends git make gcc "postgresql-server-dev-${PG_MAJOR}" \
     && mkdir -p /usr/src/pgvector \
-    && git clone --branch "${PGVECTOR_TAG}" https://github.com/pgvector/pgvector.git /usr/src/pgvector \
+    && git clone --branch "v${PGVECTOR_VERSION}" https://github.com/pgvector/pgvector.git /usr/src/pgvector \
     && cd /usr/src/pgvector \
     && make \
     && make install
@@ -61,14 +50,11 @@ RUN apt-get update \
 # Cleanup build dependencies
 RUN apt-get purge -y --auto-remove \
     build-essential \
-    # git make gcc "postgresql-server-dev-${PG_MAJOR_VERSION}" were re-installed for pgvector, purge them too
     git \
     make \
     gcc \
-    "postgresql-server-dev-${PG_MAJOR_VERSION}" \
+    "postgresql-server-dev-${PG_MAJOR}" \
     wget \
-    # gnupg might be needed if other repositories are added later, but for now, we can remove it
-    # if it was only for the postgresql repo key. lsb-release and ca-certificates are generally kept.
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/src/pgvector
@@ -76,5 +62,4 @@ RUN apt-get purge -y --auto-remove \
 # Copy initialization scripts
 COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
 
-# Default PostgreSQL port
-EXPOSE 5432 
+EXPOSE 5432

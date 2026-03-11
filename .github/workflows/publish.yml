@@ -2,40 +2,38 @@ name: Publish
 
 on:
   push:
-    tags: ["v*.*.*"] # Trigger on version tags like v1.0.0
-  workflow_dispatch: # Allows manual triggering
+    tags: ["v*.*.*"]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  # IMAGE_NAME is constructed as owner/repository_name by default in metadata-action
-  # Example: ghcr.io/yourusername/yourrepositoryname
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # Required to publish to GHCR
+      packages: write
 
     strategy:
       matrix:
         include:
-          - pg_major_version: 17
-            postgis_major_version: 3
-            pgvector_tag: v0.8.0
-            latest_tag_suffix: true
-          - pg_major_version: 16
-            postgis_major_version: 3
-            pgvector_tag: v0.8.0
-            latest_tag_suffix: false
-          - pg_major_version: 15
-            postgis_major_version: 3
-            pgvector_tag: v0.8.0
-            latest_tag_suffix: false
-          - pg_major_version: 14
-            postgis_major_version: 3
-            pgvector_tag: v0.8.0
-            latest_tag_suffix: false
+          - pg_version: "17.9"
+            postgis_version: "3"
+            pgvector_version: "0.8.2"
+            latest: true
+          - pg_version: "16.13"
+            postgis_version: "3"
+            pgvector_version: "0.8.2"
+            latest: false
+          - pg_version: "15.17"
+            postgis_version: "3"
+            pgvector_version: "0.8.2"
+            latest: false
+          - pg_version: "14.22"
+            postgis_version: "3"
+            pgvector_version: "0.8.2"
+            latest: false
 
     steps:
       - name: Checkout repository
@@ -57,8 +55,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}
           tags: |
-            type=raw,value=pg${{ matrix.pg_major_version }}-postgis${{ matrix.postgis_major_version }}-pgvector${{ matrix.pgvector_tag }}
-            type=raw,value=latest,enable=${{ matrix.latest_tag_suffix }}
+            type=raw,value=postgres-${{ matrix.pg_version }}-postgis-${{ matrix.postgis_version }}-pgvector-${{ matrix.pgvector_version }}
+            type=raw,value=latest,enable=${{ matrix.latest }}
             type=ref,event=tag
 
       - name: Build and push Docker image
@@ -69,8 +67,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            PG_MAJOR_VERSION=${{ matrix.pg_major_version }}
-            POSTGIS_MAJOR_VERSION=${{ matrix.postgis_major_version }}
-            PGVECTOR_TAG=${{ matrix.pgvector_tag }}
+            PG_VERSION=${{ matrix.pg_version }}
+            POSTGIS_VERSION=${{ matrix.postgis_version }}
+            PGVECTOR_VERSION=${{ matrix.pgvector_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
