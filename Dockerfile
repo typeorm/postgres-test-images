@@ -40,10 +40,7 @@ RUN POSTGIS_MAJOR=$(echo "${POSTGIS_VERSION}" | cut -d. -f1) \
     "postgresql-${PG_MAJOR}-postgis-${POSTGIS_MAJOR}-scripts=${POSTGIS_VERSION}+dfsg*"
 
 # Build and install pinned pgvector version from source
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git make gcc "postgresql-server-dev-${PG_MAJOR}" \
-    && mkdir -p /usr/src/pgvector \
-    && git clone --branch "v${PGVECTOR_VERSION}" https://github.com/pgvector/pgvector.git /usr/src/pgvector \
+RUN git clone --branch "v${PGVECTOR_VERSION}" --depth 1 https://github.com/pgvector/pgvector.git /usr/src/pgvector \
     && cd /usr/src/pgvector \
     && make \
     && make install
@@ -56,6 +53,8 @@ RUN apt-get purge -y --auto-remove \
     gcc \
     "postgresql-server-dev-${PG_MAJOR}" \
     wget \
+    lsb-release \
+    gnupg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && rm -rf /usr/src/pgvector

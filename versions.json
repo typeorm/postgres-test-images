@@ -1,0 +1,26 @@
+[
+  {
+    "pg_version": "17.9",
+    "postgis_version": "3.6.2",
+    "pgvector_version": "0.8.2",
+    "latest": true
+  },
+  {
+    "pg_version": "16.13",
+    "postgis_version": "3.6.2",
+    "pgvector_version": "0.8.2",
+    "latest": false
+  },
+  {
+    "pg_version": "15.17",
+    "postgis_version": "3.6.2",
+    "pgvector_version": "0.8.2",
+    "latest": false
+  },
+  {
+    "pg_version": "14.22",
+    "postgis_version": "3.6.2",
+    "pgvector_version": "0.8.2",
+    "latest": false
+  }
+]

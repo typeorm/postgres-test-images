@@ -10,18 +10,42 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
 
 jobs:
+  load-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
+      postgis_versions: ${{ steps.set-matrix.outputs.postgis_versions }}
+      pgvector_versions: ${{ steps.set-matrix.outputs.pgvector_versions }}
+      versions: ${{ steps.set-matrix.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: set-matrix
+        run: |
+          echo "pg_versions=$(jq -c '[.[].pg_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
+          echo "postgis_versions=$(jq -c '[.[].postgis_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
+          echo "pgvector_versions=$(jq -c '[.[].pgvector_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
+          echo "versions=$(jq -c '.' versions.json)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: load-versions
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
 
     strategy:
+      fail-fast: false
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm]
-        pg_version: ["17.9", "16.13", "15.17", "14.22"]
-        postgis_version: ["3.6.2"]
-        pgvector_version: ["0.8.2"]
+        pg_version: ${{ fromJSON(needs.load-versions.outputs.pg_versions) }}
+        postgis_version: ${{ fromJSON(needs.load-versions.outputs.postgis_versions) }}
+        pgvector_version: ${{ fromJSON(needs.load-versions.outputs.pgvector_versions) }}
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
 
     steps:
       - name: Checkout repository
@@ -49,6 +73,7 @@ jobs:
         with:
           context: .
           push: true
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             PG_VERSION=${{ matrix.pg_version }}
@@ -56,7 +81,7 @@ jobs:
             PGVECTOR_VERSION=${{ matrix.pgvector_version }}
           cache-from: type=gha,scope=${{ matrix.pg_version }}-${{ matrix.runner }}
           cache-to: type=gha,mode=max,scope=${{ matrix.pg_version }}-${{ matrix.runner }}
-          outputs: type=image,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
         run: |
@@ -74,30 +99,16 @@ jobs:
 
   merge:
     runs-on: ubuntu-latest
-    needs: build
+    timeout-minutes: 10
+    needs: [load-versions, build]
     permissions:
       contents: read
       packages: write
 
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          - pg_version: "17.9"
-            postgis_version: "3.6.2"
-            pgvector_version: "0.8.2"
-            latest: true
-          - pg_version: "16.13"
-            postgis_version: "3.6.2"
-            pgvector_version: "0.8.2"
-            latest: false
-          - pg_version: "15.17"
-            postgis_version: "3.6.2"
-            pgvector_version: "0.8.2"
-            latest: false
-          - pg_version: "14.22"
-            postgis_version: "3.6.2"
-            pgvector_version: "0.8.2"
-            latest: false
+        include: ${{ fromJSON(needs.load-versions.outputs.versions) }}
 
     steps:
       - name: Download digests
@@ -130,3 +141,7 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Verify multi-arch manifest
+        run: |
+          docker buildx imagetools inspect $(jq -cr '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
