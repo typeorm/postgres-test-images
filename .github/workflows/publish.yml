@@ -61,10 +61,9 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
           platforms: ${{ matrix.platform }}
-          provenance: true
-          sbom: true
+          provenance: false
+          sbom: false
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             PG_VERSION=${{ matrix.pg_version }}

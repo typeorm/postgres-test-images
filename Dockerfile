@@ -40,7 +40,6 @@ RUN set -eux \
     && cd /usr/src/pgvector \
     && make \
     && make install \
-    && apt-mark manual ca-certificates \
     && apt-get purge -y --auto-remove \
         build-essential \
         git \
@@ -51,12 +50,14 @@ RUN set -eux \
         lsb-release \
         gnupg \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /usr/src/pgvector
+    && rm -rf /var/lib/apt/lists/* /usr/src/pgvector \
+        /etc/apt/sources.list.d/pgdg.list \
+        /usr/share/keyrings/postgresql-archive-keyring.gpg
 
 # Copy initialization scripts
 COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD pg_isready -U postgres || exit 1
+    CMD pg_isready -U postgres
 
 EXPOSE 5432
