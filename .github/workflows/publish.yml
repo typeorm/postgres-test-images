@@ -13,18 +13,16 @@ jobs:
   load-versions:
     runs-on: ubuntu-latest
     outputs:
-      pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
-      postgis_versions: ${{ steps.set-matrix.outputs.postgis_versions }}
-      pgvector_versions: ${{ steps.set-matrix.outputs.pgvector_versions }}
-      versions: ${{ steps.set-matrix.outputs.versions }}
+      build-matrix: ${{ steps.set-matrix.outputs.build_matrix }}
+      merge-matrix: ${{ steps.set-matrix.outputs.merge_matrix }}
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
         run: |
-          echo "pg_versions=$(jq -c '[.[].pg_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
-          echo "postgis_versions=$(jq -c '[.[].postgis_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
-          echo "pgvector_versions=$(jq -c '[.[].pgvector_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
-          echo "versions=$(jq -c '.' versions.json)" >> "$GITHUB_OUTPUT"
+          RUNNERS='[{"runner":"ubuntu-latest","platform":"linux/amd64"},{"runner":"ubuntu-24.04-arm","platform":"linux/arm64"}]'
+          BUILD_MATRIX=$(jq -c --argjson runners "$RUNNERS" '{include: [.[] | . as $v | $runners[] | . + $v]}' versions.json)
+          echo "build_matrix=$BUILD_MATRIX" >> "$GITHUB_OUTPUT"
+          echo "merge_matrix=$(jq -c '{include: .}' versions.json)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: load-versions
@@ -36,16 +34,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
-        pg_version: ${{ fromJSON(needs.load-versions.outputs.pg_versions) }}
-        postgis_version: ${{ fromJSON(needs.load-versions.outputs.postgis_versions) }}
-        pgvector_version: ${{ fromJSON(needs.load-versions.outputs.pgvector_versions) }}
-        include:
-          - runner: ubuntu-latest
-            platform: linux/amd64
-          - runner: ubuntu-24.04-arm
-            platform: linux/arm64
+      matrix: ${{ fromJSON(needs.load-versions.outputs.build-matrix) }}
 
     steps:
       - name: Checkout repository
@@ -74,20 +63,22 @@ jobs:
           context: .
           push: true
           platforms: ${{ matrix.platform }}
+          provenance: true
+          sbom: true
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             PG_VERSION=${{ matrix.pg_version }}
             POSTGIS_VERSION=${{ matrix.postgis_version }}
             PGVECTOR_VERSION=${{ matrix.pgvector_version }}
           cache-from: type=gha,scope=${{ matrix.pg_version }}-${{ matrix.runner }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.pg_version }}-${{ matrix.runner }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
 
       - name: Upload digest
         uses: actions/upload-artifact@v4
@@ -107,8 +98,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        include: ${{ fromJSON(needs.load-versions.outputs.versions) }}
+      matrix: ${{ fromJSON(needs.load-versions.outputs.merge-matrix) }}
 
     steps:
       - name: Download digests
@@ -137,10 +127,13 @@ jobs:
 
       - name: Create multi-arch manifest and push
         working-directory: /tmp/digests
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE: ${{ env.IMAGE_NAME }}
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+            $(printf "${REGISTRY}/${IMAGE}@sha256:%s " *)
 
       - name: Verify multi-arch manifest
         run: |

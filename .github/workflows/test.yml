@@ -7,20 +7,20 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   load-versions:
     runs-on: ubuntu-latest
     outputs:
-      pg_versions: ${{ steps.set-matrix.outputs.pg_versions }}
-      postgis_versions: ${{ steps.set-matrix.outputs.postgis_versions }}
-      pgvector_versions: ${{ steps.set-matrix.outputs.pgvector_versions }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v6
       - id: set-matrix
         run: |
-          echo "pg_versions=$(jq -c '[.[].pg_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
-          echo "postgis_versions=$(jq -c '[.[].postgis_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
-          echo "pgvector_versions=$(jq -c '[.[].pgvector_version] | unique' versions.json)" >> "$GITHUB_OUTPUT"
+          MATRIX=$(jq -c '{include: [.[] | . as $v | {runner: "ubuntu-latest"}, {runner: "ubuntu-24.04-arm"} | . + $v]}' versions.json)
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
   test:
     needs: load-versions
@@ -28,11 +28,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       fail-fast: false
-      matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
-        pg_version: ${{ fromJSON(needs.load-versions.outputs.pg_versions) }}
-        postgis_version: ${{ fromJSON(needs.load-versions.outputs.postgis_versions) }}
-        pgvector_version: ${{ fromJSON(needs.load-versions.outputs.pgvector_versions) }}
+      matrix: ${{ fromJSON(needs.load-versions.outputs.matrix) }}
 
     steps:
       - uses: actions/checkout@v6
@@ -54,9 +50,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.pg_version }}-${{ matrix.runner }}
 
       - name: Start PostgreSQL container
+        env:
+          PG_VERSION: ${{ matrix.pg_version }}
+          RUNNER: ${{ matrix.runner }}
         run: |
-          IMAGE_TAG="postgres-test:pg${{ matrix.pg_version }}"
-          echo "Testing image: $IMAGE_TAG (runner: ${{ matrix.runner }})"
+          IMAGE_TAG="postgres-test:pg${PG_VERSION}"
+          echo "Testing image: $IMAGE_TAG (runner: $RUNNER)"
 
           docker run -d --name test-db \
             -e POSTGRES_PASSWORD=test \
@@ -66,7 +65,7 @@ jobs:
             --health-interval=2s \
             --health-timeout=5s \
             --health-retries=30 \
-            $IMAGE_TAG \
+            "$IMAGE_TAG" \
             postgres -c shared_preload_libraries=vector
 
           echo "Waiting for PostgreSQL to become healthy..."
@@ -97,8 +96,10 @@ jobs:
           docker exec test-db psql -U test -d test -c "CREATE TABLE items (id bigserial PRIMARY KEY, embedding vector(3)); INSERT INTO items (embedding) VALUES ('[1,2,3]'), ('[4,5,6]'); SELECT COUNT(*) FROM items;"
 
       - name: Verify installed versions match requested
+        env:
+          EXPECTED_PGVECTOR: ${{ matrix.pgvector_version }}
+          EXPECTED_POSTGIS: ${{ matrix.postgis_version }}
         run: |
-          EXPECTED_PGVECTOR="${{ matrix.pgvector_version }}"
           ACTUAL_PGVECTOR=$(docker exec test-db psql -U test -d test -tAc \
             "SELECT extversion FROM pg_extension WHERE extname = 'vector';")
           if [ "$ACTUAL_PGVECTOR" != "$EXPECTED_PGVECTOR" ]; then
@@ -107,7 +108,6 @@ jobs:
           fi
           echo "pgvector version OK: $ACTUAL_PGVECTOR"
 
-          EXPECTED_POSTGIS="${{ matrix.postgis_version }}"
           ACTUAL_POSTGIS=$(docker exec test-db psql -U test -d test -tAc \
             "SELECT extversion FROM pg_extension WHERE extname = 'postgis';")
           if [ "$ACTUAL_POSTGIS" != "$EXPECTED_POSTGIS" ]; then

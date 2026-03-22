@@ -1,0 +1,9 @@
+.git
+.github
+.dockerignore
+.gitignore
+.env*
+*.md
+LICENSE
+docker-compose*.yml
+versions.json
